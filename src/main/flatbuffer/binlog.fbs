@@ -1,0 +1,45 @@
+namespace com.hortonworks.binlog.flat;
+
+enum Level:byte {FATAL, ERROR, WARN, INFO, DEBUG, TRACE}
+
+table ExceptionInfo {
+  text: [string];
+}
+
+table Location {
+  className: string;
+  fileName: string;
+  methodName: string;
+  // say what?
+  line: string;
+}
+
+table Event {
+  time: long;
+  level: Level = INFO;
+  message: string;
+  // the throwable 
+  throwable: ExceptionInfo;
+  // the thread name
+  thread: string;
+  // the logger name
+  logger: string;
+  // the code location
+  location: Location;
+
+  // the project {hdfs, yarn, hive, ...}
+  project: string;
+  // the kind of server {namenode, datanode, resourcemanager, ...}
+  server: string;
+  // the host ip addresses
+  hostName: string;
+  ipAddress: string;
+  // the process pid
+  pid: int;
+}
+
+table Block {
+  events: [Event];
+}
+
+root_type Block;
