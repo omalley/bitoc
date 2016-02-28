@@ -7,6 +7,8 @@ import com.hortonworks.binlog.flat.ExceptionInfo;
 import com.hortonworks.binlog.flat.Level;
 import com.hortonworks.binlog.flat.Location;
 import org.apache.log4j.AppenderSkeleton;
+import org.apache.log4j.spi.ErrorCode;
+import org.apache.log4j.spi.ErrorHandler;
 import org.apache.log4j.spi.LocationInfo;
 import org.apache.log4j.spi.LoggingEvent;
 
@@ -16,100 +18,126 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.util.logging.Logger;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * A Log4j Appender
  */
 public class Log4jAppender extends AppenderSkeleton {
-  static final Logger LOG = Logger.getLogger(Log4jAppender.class.getName());
+  // the number of event to buffer up
+  private static final int QUEUE_SIZE = 32;
 
-  public Log4jAppender() throws IOException {
-    InetAddress addr = InetAddress.getLocalHost();
-    ipAddress = addr.getHostAddress();
-    hostName = addr.getHostName();
+  // the expected size of each event
+  private static final int EXPECTED_EVENT_SIZE = 256;
 
-    // get the pid... stupid java.. hack
-    try {
-      java.lang.management.RuntimeMXBean runtime =
-          java.lang.management.ManagementFactory.getRuntimeMXBean();
-      java.lang.reflect.Field jvm = runtime.getClass().getDeclaredField("jvm");
-      jvm.setAccessible(true);
-      sun.management.VMManagement mgmt =
-          (sun.management.VMManagement) jvm.get(runtime);
-      java.lang.reflect.Method pid_method =
-          mgmt.getClass().getDeclaredMethod("getProcessId");
-      pid_method.setAccessible(true);
-      pid = (Integer) pid_method.invoke(mgmt);
-    } catch (IllegalAccessException e) {
-      throw new RuntimeException("Can't get PID", e);
-    } catch (InvocationTargetException e) {
-      throw new RuntimeException("Can't get PID", e);
-    } catch (NoSuchMethodException e) {
-      throw new RuntimeException("Can't get PID", e);
-    } catch (NoSuchFieldException e) {
-      throw new RuntimeException("Can't get PID", e);
-    }
-  }
-
-  public void activateOptions() {
+  public synchronized void activateOptions() {
     if (topic == null) {
-      throw new IllegalArgumentException("No topic");
+      throw new IllegalArgumentException("No topic string configured");
     }
-    eventArray = new int[blockSize];
-    projectOffset = project == null ? 0 : builder.createString(project);
-    serverOffset = server == null ? 0 : builder.createString(server);
-    hostOffset = hostName == null ? 0 : builder.createString(hostName);
-    ipAddressOffset = ipAddress == null ? 0 : builder.createString(ipAddress);
-  }
-
-  protected void flushEvents() {
-    System.out.println("Flushing " + eventCount + " events");
-    Block.startEventsVector(builder, eventCount);
-    for(int i=0; i < eventCount; ++i) {
-      Block.addEvents(builder, eventArray[i]);
+    if (brokerList == null) {
+      throw new IllegalArgumentException("No broker list configured");
     }
-    Block.finishBlockBuffer(builder,
-        Block.createBlock(builder, builder.endVector()));
-    ByteBuffer buffer = builder.dataBuffer();
-    File file = new File(String.format("/tmp/%s-%05d", topic, batchNumber++));
-    try {
-      DataOutputStream os = new DataOutputStream(new FileOutputStream(
-          file));
-      int start = buffer.position();
-      os.write(buffer.array(), start, buffer.limit() - start);
-      os.close();
-    } catch (IOException ioe) {
-      throw new RuntimeException("Can't write file " + file, ioe);
+    if (serializer != null) {
+      throw new IllegalStateException("Log4jAppender already configured.");
     }
-
-    builder.init(buffer);
-    eventCount = 0;
-    projectOffset = project == null ? 0 : builder.createString(project);
-    serverOffset = server == null ? 0 : builder.createString(server);
-    hostOffset = hostName == null ? 0 : builder.createString(hostName);
-    ipAddressOffset = ipAddress == null ? 0 : builder.createString(ipAddress);
-  }
-
-  static byte serializeLevel(org.apache.log4j.Level level) {
-    switch (level.getSyslogEquivalent()) {
-      case 0: return Level.FATAL;
-      case 3: return Level.ERROR;
-      case 4: return Level.WARN;
-      case 6: return Level.INFO;
-      case 7: return level == org.apache.log4j.Level.DEBUG ?
-            Level.DEBUG : Level.TRACE;
-      default:
-        throw new IllegalArgumentException("Unknown level " + level);
-    }
+    serializer = new SerializingThread(batchSize, topic, brokerList,
+        project, server, collectLocation,requiredAcks,lingerMillis,
+        getErrorHandler(), queue);
   }
 
   @Override
   protected void append(LoggingEvent loggingEvent) {
-    synchronized (builder) {
+    queue.add(loggingEvent);
+  }
+
+  public synchronized void close() {
+    if (serializer != null) {
+      serializer.close();
+      serializer = null;
+    }
+  }
+
+  static class SerializingThread extends Thread {
+
+    SerializingThread(int batchSize,
+                      String topic,
+                      String brokerList,
+                      String project,
+                      String server,
+                      boolean collectLocation,
+                      int requiredAcks,
+                      int lingerMillis,
+                      ErrorHandler errorHandler,
+                      ArrayBlockingQueue<LoggingEvent> queue) {
+      super("LoggingSerializer");
+      this.batchSize = batchSize;
+      this.topic = topic;
+      this.brokerList = brokerList;
+      this.project = project;
+      this.server = server;
+      this.collectLocation = collectLocation;
+      this.requiredAcks = requiredAcks;
+      this.lingerMillis = lingerMillis;
+      this.eventArray = new int[batchSize];
+      this.errorHandler = errorHandler;
+      this.queue = queue;
+      this.builder = new FlatBufferBuilder(EXPECTED_EVENT_SIZE * batchSize);
+      startNewBlock();
+    }
+
+    void close() {
+      shutdown.set(true);
+    }
+
+    private void startNewBlock() {
+      eventCount = 0;
+      projectOffset = project == null ? 0 : builder.createString(project);
+      serverOffset = server == null ? 0 : builder.createString(server);
+      hostOffset = hostName == null ? 0 : builder.createString(hostName);
+      ipAddressOffset = ipAddress == null ? 0 : builder.createString(ipAddress);
+    }
+
+    static byte serializeLevel(org.apache.log4j.Level level) {
+      switch (level.getSyslogEquivalent()) {
+        case 0: return Level.FATAL;
+        case 3: return Level.ERROR;
+        case 4: return Level.WARN;
+        case 6: return Level.INFO;
+        case 7: return level == org.apache.log4j.Level.DEBUG ?
+            Level.DEBUG : Level.TRACE;
+        default:
+          throw new IllegalArgumentException("Unknown level " + level);
+      }
+    }
+
+    protected void flushEvents() throws IOException {
+      System.out.println("Flushing " + eventCount + " events");
+      Block.startEventsVector(builder, eventCount);
+      for(int i=0; i < eventCount; ++i) {
+        Block.addEvents(builder, eventArray[i]);
+      }
+      Block.finishBlockBuffer(builder,
+          Block.createBlock(builder, builder.endVector()));
+      ByteBuffer buffer = builder.dataBuffer();
+
+      // for now write to a new file
+      File file = new File(String.format("/tmp/%s-%05d", topic, batchNumber++));
+      DataOutputStream os = new DataOutputStream(new FileOutputStream(file));
+      int start = buffer.position();
+      os.write(buffer.array(), start, buffer.limit() - start);
+      os.close();
+
+      builder.init(buffer);
+      startNewBlock();
+    }
+
+    private void serializeEvent(LoggingEvent event) throws IOException {
       // if there is a throwable, serialize it
-      String[] throwable = loggingEvent.getThrowableStrRep();
+      String[] throwable = event.getThrowableStrRep();
       int throwableOffset = 0;
       if (throwable != null) {
         int[] strs = new int[throwable.length];
@@ -125,7 +153,7 @@ public class Log4jAppender extends AppenderSkeleton {
       // if the user wants locations, serialize it
       int locationOffset = 0;
       if (collectLocation) {
-        LocationInfo info = loggingEvent.getLocationInformation();
+        LocationInfo info = event.getLocationInformation();
         locationOffset = Location.createLocation(builder,
             builder.createString(info.getClassName()),
             builder.createString(info.getFileName()),
@@ -133,32 +161,76 @@ public class Log4jAppender extends AppenderSkeleton {
             builder.createString(info.getLineNumber()));
       }
       eventArray[eventCount++] = Event.createEvent(builder,
-          loggingEvent.getTimeStamp(),
-          serializeLevel(loggingEvent.getLevel()),
-          builder.createString(loggingEvent.getRenderedMessage()),
+          event.getTimeStamp(),
+          serializeLevel(event.getLevel()),
+          builder.createString(event.getRenderedMessage()),
           throwableOffset,
-          builder.createString(loggingEvent.getThreadName()),
-          builder.createString(loggingEvent.getLoggerName()),
+          builder.createString(event.getThreadName()),
+          builder.createString(event.getLoggerName()),
           locationOffset,
           projectOffset,
           serverOffset,
           hostOffset,
           ipAddressOffset,
           pid);
+    }
 
-      // if the batch is full, go ahead and flush it
-      if (eventCount >= blockSize) {
-        flushEvents();
+    public void run() {
+      long nextDeadline = 0;
+      while (!shutdown.get()) {
+        try {
+          LoggingEvent next;
+          if (eventCount != 0) {
+            next = queue.poll(nextDeadline - System.currentTimeMillis(),
+                TimeUnit.MILLISECONDS);
+          } else {
+            next = queue.take();
+          }
+          if (next != null) {
+            if (eventCount == 0) {
+              nextDeadline = System.currentTimeMillis() + lingerMillis;
+            }
+            serializeEvent(next);
+            // if the batch is full, go ahead and flush it
+            if (eventCount == batchSize) {
+              flushEvents();
+            }
+          } else {
+            flushEvents();
+          }
+        } catch (InterruptedException e) {
+          shutdown.set(true);
+        } catch (Exception e) {
+          errorHandler.error("Error in Appender", e, ErrorCode.WRITE_FAILURE);
+        } catch (Throwable e) {
+          System.err.println("Throwable in Appender: " + e.getMessage());
+          e.printStackTrace();
+        }
       }
     }
-  }
 
-  public void close() {
-    if (eventCount != 0) {
-      synchronized (builder) {
-        flushEvents();
-      }
-    }
+    // the internal state of our appender
+    private AtomicBoolean shutdown = new AtomicBoolean(false);
+    private int batchNumber = 0;
+    private int eventCount = 0;
+    private final int[] eventArray;
+    private final FlatBufferBuilder builder;
+    private int serverOffset;
+    private int projectOffset;
+    private int hostOffset;
+    private int ipAddressOffset;
+
+    // the configuration parameters
+    private final String project;
+    private final String server;
+    private final int batchSize;
+    private final boolean collectLocation;
+    private final String brokerList;
+    private final int requiredAcks;
+    private final int lingerMillis;
+    private final String topic;
+    private final ErrorHandler errorHandler;
+    private final ArrayBlockingQueue<LoggingEvent> queue;
   }
 
   public boolean requiresLayout() {
@@ -169,8 +241,8 @@ public class Log4jAppender extends AppenderSkeleton {
     this.brokerList = value;
   }
 
-  public void setBlockSize(int value) {
-    this.blockSize = value;
+  public void setBatchSize(int value) {
+    this.batchSize = value;
   }
 
   public void setCollectLocation(boolean value) {
@@ -197,29 +269,61 @@ public class Log4jAppender extends AppenderSkeleton {
     this.project = value;
   }
 
-  // these are automatically set when we are created
-  private final String hostName;
-  private final String ipAddress;
-  private final int pid;
+  static int getPid() {
+    // get the pid... stupid java.. hack
+    try {
+      java.lang.management.RuntimeMXBean runtime =
+          java.lang.management.ManagementFactory.getRuntimeMXBean();
+      java.lang.reflect.Field jvm = runtime.getClass().getDeclaredField("jvm");
+      jvm.setAccessible(true);
+      sun.management.VMManagement mgmt =
+          (sun.management.VMManagement) jvm.get(runtime);
+      java.lang.reflect.Method pid_method =
+          mgmt.getClass().getDeclaredMethod("getProcessId");
+      pid_method.setAccessible(true);
+      return (Integer) pid_method.invoke(mgmt);
+    } catch (IllegalAccessException e) {
+      throw new RuntimeException("Can't get PID", e);
+    } catch (InvocationTargetException e) {
+      throw new RuntimeException("Can't get PID", e);
+    } catch (NoSuchMethodException e) {
+      throw new RuntimeException("Can't get PID", e);
+    } catch (NoSuchFieldException e) {
+      throw new RuntimeException("Can't get PID", e);
+    }
+  }
 
-  private String server;
-  private String project;
-  private boolean collectLocation = false;
+  // get the static information about this host
+  static final int pid;
+  static final String hostName;
+  static final String ipAddress;
+  static {
+    System.out.println("Doing OOM static initialization");
+    pid = getPid();
+    InetAddress addr = null;
+    try {
+      addr = InetAddress.getLocalHost();
+    } catch (UnknownHostException err) {
+      System.err.println("Can't get localhost information - " +
+          err.getMessage());
+      err.printStackTrace();
+    }
+    ipAddress = addr == null ? "unknown" : addr.getHostAddress();
+    hostName = addr == null ? "unknown" : addr.getHostName();
+  }
 
-  // the kafka parameters
-  private String brokerList;
-  private int requiredAcks = 1;
-  private int lingerMillis = 1000;
+  // the queue and thread that handles sending to Kafka
+  private final ArrayBlockingQueue<LoggingEvent> queue =
+      new ArrayBlockingQueue<LoggingEvent>(QUEUE_SIZE);
+  private SerializingThread serializer;
+
+  // set via configuration
   private String topic;
-
-  // the internal state of our appender
-  private int batchNumber = 0;
-  private int eventCount = 0;
-  private int blockSize = 1024;
-  private int[] eventArray;
-  private final FlatBufferBuilder builder = new FlatBufferBuilder(1024 * 128);
-  private int serverOffset;
-  private int projectOffset;
-  private int hostOffset;
-  private int ipAddressOffset;
+  private String brokerList;
+  private int batchSize = 1024;
+  private int requiredAcks = 1;
+  private int lingerMillis = 1024;
+  private String server = "client";
+  private String project = "unspecified";
+  private boolean collectLocation = false;
 }
