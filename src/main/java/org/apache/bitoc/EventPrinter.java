@@ -1,10 +1,10 @@
-package com.hortonworks.ktoolog;
+package org.apache.bitoc;
 
-import com.hortonworks.ktoolog.flat.Block;
-import com.hortonworks.ktoolog.flat.Event;
-import com.hortonworks.ktoolog.flat.ExceptionInfo;
-import com.hortonworks.ktoolog.flat.Level;
-import com.hortonworks.ktoolog.flat.Location;
+import org.apache.bitoc.flat.Block;
+import org.apache.bitoc.flat.Event;
+import org.apache.bitoc.flat.ExceptionInfo;
+import org.apache.bitoc.flat.Level;
+import org.apache.bitoc.flat.Location;
 import kafka.api.FetchRequestBuilder;
 import kafka.api.PartitionOffsetRequestInfo;
 import kafka.common.ErrorMapping;

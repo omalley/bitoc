@@ -1,4 +1,4 @@
-namespace com.hortonworks.ktoolog.flat;
+namespace org.apache.bitoc.flat;
 
 enum Level:byte {FATAL, ERROR, WARN, INFO, DEBUG, TRACE}
 

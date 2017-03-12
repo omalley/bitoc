@@ -2,10 +2,10 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.hortonworks</groupId>
-  <artifactId>ktoolog</artifactId>
+  <artifactId>bitoc</artifactId>
   <packaging>jar</packaging>
   <version>1.0</version>
-  <name>kafka to orc logging</name>
+  <name>Bitoc</name>
   <url>http://maven.apache.org</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -21,30 +21,44 @@
       <artifactId>kafka_2.10</artifactId>
       <version>0.8.1.1</version>
     </dependency>
+    <dependency>
+      <groupId>com.github.davidmoten</groupId>
+      <artifactId>flatbuffers-java</artifactId>
+      <version>1.6.0.2</version>
+  </dependency>
   </dependencies>
   <build>
     <plugins>
       <plugin>
-	<artifactId>maven-assembly-plugin</artifactId>
-	<configuration>
-	  <archive>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <configuration>
+          <archive>
             <manifest>
-              <mainClass>com.hortonworks.ktoolog.EventPrinter</mainClass>
+              <mainClass>org.apache.bitoc.EventPrinter</mainClass>
             </manifest>
-	  </archive>
-	  <descriptorRefs>
+          </archive>
+          <descriptorRefs>
             <descriptorRef>jar-with-dependencies</descriptorRef>
-	  </descriptorRefs>
-	</configuration>
-	<executions>
-	  <execution>
+          </descriptorRefs>
+        </configuration>
+        <executions>
+          <execution>
             <id>make-assembly</id> <!-- this is used for inheritance merges -->
             <phase>package</phase> <!-- bind to the packaging phase -->
             <goals>
               <goal>single</goal>
             </goals>
-	  </execution>
-	</executions>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.1</version>
+        <configuration>
+          <source>1.7</source>
+          <target>1.7</target>
+        </configuration>
       </plugin>
     </plugins>
   </build>

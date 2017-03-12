@@ -1,11 +1,11 @@
-package com.hortonworks.ktoolog;
+package org.apache.bitoc;
 
 import com.google.flatbuffers.FlatBufferBuilder;
-import com.hortonworks.ktoolog.flat.Block;
-import com.hortonworks.ktoolog.flat.Event;
-import com.hortonworks.ktoolog.flat.ExceptionInfo;
-import com.hortonworks.ktoolog.flat.Level;
-import com.hortonworks.ktoolog.flat.Location;
+import org.apache.bitoc.flat.Block;
+import org.apache.bitoc.flat.Event;
+import org.apache.bitoc.flat.ExceptionInfo;
+import org.apache.bitoc.flat.Level;
+import org.apache.bitoc.flat.Location;
 import kafka.javaapi.producer.Producer;
 import kafka.producer.KeyedMessage;
 import kafka.producer.ProducerConfig;
@@ -221,7 +221,7 @@ public class Log4jAppender extends AppenderSkeleton {
               // postpone creating the producer until log4j is configured
               // completely so we don't get warnings about non-configured
               // loggers
-              producer = new Producer<Void, byte[]>(new ProducerConfig(config));
+              producer = new Producer<>(new ProducerConfig(config));
             }
             serializeEvent(next);
             // if the batch is full, go ahead and flush it
@@ -353,7 +353,7 @@ public class Log4jAppender extends AppenderSkeleton {
 
   // the queue and thread that handles sending to Kafka
   private final ArrayBlockingQueue<LoggingEvent> queue =
-      new ArrayBlockingQueue<LoggingEvent>(QUEUE_SIZE);
+      new ArrayBlockingQueue<>(QUEUE_SIZE);
   private SerializingThread serializer;
 
   // set via configuration

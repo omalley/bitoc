@@ -1,6 +1,6 @@
 // automatically generated, do not modify
 
-package com.hortonworks.ktoolog.flat;
+package org.apache.bitoc.flat;
 
 public final class Level {
   private Level() { }
