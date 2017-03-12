@@ -1,4 +1,4 @@
-namespace com.hortonworks.binlog.flat;
+namespace com.hortonworks.ktoolog.flat;
 
 enum Level:byte {FATAL, ERROR, WARN, INFO, DEBUG, TRACE}
 
@@ -10,8 +10,7 @@ table Location {
   className: string;
   fileName: string;
   methodName: string;
-  // say what?
-  line: string;
+  line: int;
 }
 
 table Event {

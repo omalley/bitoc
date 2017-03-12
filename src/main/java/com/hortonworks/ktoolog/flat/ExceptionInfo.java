@@ -1,10 +1,10 @@
 // automatically generated, do not modify
 
-package com.hortonworks.binlog.flat;
+package com.hortonworks.ktoolog.flat;
 
 import java.nio.*;
 import java.lang.*;
-import java.util.*;
+
 import com.google.flatbuffers.*;
 
 @SuppressWarnings("unused")

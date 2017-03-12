@@ -1,25 +1,28 @@
-package com.hortonworks.binlog;
+package com.hortonworks.ktoolog;
 
 import com.google.flatbuffers.FlatBufferBuilder;
-import com.hortonworks.binlog.flat.Block;
-import com.hortonworks.binlog.flat.Event;
-import com.hortonworks.binlog.flat.ExceptionInfo;
-import com.hortonworks.binlog.flat.Level;
-import com.hortonworks.binlog.flat.Location;
+import com.hortonworks.ktoolog.flat.Block;
+import com.hortonworks.ktoolog.flat.Event;
+import com.hortonworks.ktoolog.flat.ExceptionInfo;
+import com.hortonworks.ktoolog.flat.Level;
+import com.hortonworks.ktoolog.flat.Location;
+import kafka.javaapi.producer.Producer;
+import kafka.producer.KeyedMessage;
+import kafka.producer.ProducerConfig;
 import org.apache.log4j.AppenderSkeleton;
+import org.apache.log4j.helpers.LogLog;
 import org.apache.log4j.spi.ErrorCode;
 import org.apache.log4j.spi.ErrorHandler;
 import org.apache.log4j.spi.LocationInfo;
 import org.apache.log4j.spi.LoggingEvent;
 
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Properties;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,24 +37,49 @@ public class Log4jAppender extends AppenderSkeleton {
   // the expected size of each event
   private static final int EXPECTED_EVENT_SIZE = 256;
 
+  private static final String REQUIRED_ACKS_CONFIG = "request.required.acks";
+  private static final String BROKER_LIST_CONFIG = "metadata.broker.list";
+  private static final String CLIENT_ID_CONFIG = "client.id";
+  private static final String PRODUCER_TYPE_CONFIG = "producer.type";
+
   public synchronized void activateOptions() {
-    if (topic == null) {
-      throw new IllegalArgumentException("No topic string configured");
+    try {
+      if (topic == null) {
+        throw new IllegalArgumentException("No topic configured.");
+      }
+      if (!config.containsKey(BROKER_LIST_CONFIG)) {
+        throw new IllegalArgumentException("No broker list configured in " +
+            config.toString());
+      }
+      if (serializer != null) {
+        throw new IllegalArgumentException("Log4jAppender already configured.");
+      }
+      config.put(CLIENT_ID_CONFIG, project + "-" + server + "-" + hostName);
+      serializer = new SerializingThread(batchSize, topic, config,
+          project, server, collectLocation, lingerMillis,
+          getErrorHandler(), queue);
+      serializer.start();
+    } catch (Throwable e) {
+      // problems in this method need to shut down the system
+      // throwing causes really unintelligible error messages
+      LogLog.error("Initialization error with " + config, e);
+      System.exit(1);
     }
-    if (brokerList == null) {
-      throw new IllegalArgumentException("No broker list configured");
-    }
-    if (serializer != null) {
-      throw new IllegalStateException("Log4jAppender already configured.");
-    }
-    serializer = new SerializingThread(batchSize, topic, brokerList,
-        project, server, collectLocation,requiredAcks,lingerMillis,
-        getErrorHandler(), queue);
   }
 
   @Override
   protected void append(LoggingEvent loggingEvent) {
-    queue.add(loggingEvent);
+    // fetch some of the properties, so they aren't lost
+    loggingEvent.getThreadName();
+    if (collectLocation) {
+      loggingEvent.getLocationInformation();
+    }
+    // queue up the logging event
+    try {
+      queue.put(loggingEvent);
+    } catch (InterruptedException e) {
+      LogLog.warn("Interrupted putting into queue", e);
+    }
   }
 
   public synchronized void close() {
@@ -65,28 +93,26 @@ public class Log4jAppender extends AppenderSkeleton {
 
     SerializingThread(int batchSize,
                       String topic,
-                      String brokerList,
+                      Properties config,
                       String project,
                       String server,
                       boolean collectLocation,
-                      int requiredAcks,
                       int lingerMillis,
                       ErrorHandler errorHandler,
                       ArrayBlockingQueue<LoggingEvent> queue) {
       super("LoggingSerializer");
       this.batchSize = batchSize;
       this.topic = topic;
-      this.brokerList = brokerList;
       this.project = project;
       this.server = server;
       this.collectLocation = collectLocation;
-      this.requiredAcks = requiredAcks;
       this.lingerMillis = lingerMillis;
       this.eventArray = new int[batchSize];
       this.errorHandler = errorHandler;
       this.queue = queue;
       this.builder = new FlatBufferBuilder(EXPECTED_EVENT_SIZE * batchSize);
       startNewBlock();
+      this.config = config;
     }
 
     void close() {
@@ -115,21 +141,19 @@ public class Log4jAppender extends AppenderSkeleton {
     }
 
     protected void flushEvents() throws IOException {
-      System.out.println("Flushing " + eventCount + " events");
       Block.startEventsVector(builder, eventCount);
-      for(int i=0; i < eventCount; ++i) {
+      for(int i=eventCount - 1; i >= 0; --i) {
         Block.addEvents(builder, eventArray[i]);
       }
       Block.finishBlockBuffer(builder,
           Block.createBlock(builder, builder.endVector()));
       ByteBuffer buffer = builder.dataBuffer();
 
-      // for now write to a new file
-      File file = new File(String.format("/tmp/%s-%05d", topic, batchNumber++));
-      DataOutputStream os = new DataOutputStream(new FileOutputStream(file));
-      int start = buffer.position();
-      os.write(buffer.array(), start, buffer.limit() - start);
-      os.close();
+      // send to Kafka
+      producer.send(new KeyedMessage<Void, byte[]>(topic,
+          Arrays.copyOfRange(buffer.array(),
+              buffer.position() + buffer.arrayOffset(),
+              buffer.limit())));
 
       builder.init(buffer);
       startNewBlock();
@@ -154,11 +178,14 @@ public class Log4jAppender extends AppenderSkeleton {
       int locationOffset = 0;
       if (collectLocation) {
         LocationInfo info = event.getLocationInformation();
+        String lineStr = info.getLineNumber();
+        int line = (lineStr == null || lineStr.equals("?"))
+            ? -1 : Integer.parseInt(lineStr);
         locationOffset = Location.createLocation(builder,
             builder.createString(info.getClassName()),
             builder.createString(info.getFileName()),
             builder.createString(info.getMethodName()),
-            builder.createString(info.getLineNumber()));
+            line);
       }
       eventArray[eventCount++] = Event.createEvent(builder,
           event.getTimeStamp(),
@@ -190,6 +217,12 @@ public class Log4jAppender extends AppenderSkeleton {
             if (eventCount == 0) {
               nextDeadline = System.currentTimeMillis() + lingerMillis;
             }
+            if (producer == null) {
+              // postpone creating the producer until log4j is configured
+              // completely so we don't get warnings about non-configured
+              // loggers
+              producer = new Producer<Void, byte[]>(new ProducerConfig(config));
+            }
             serializeEvent(next);
             // if the batch is full, go ahead and flush it
             if (eventCount == batchSize) {
@@ -203,15 +236,16 @@ public class Log4jAppender extends AppenderSkeleton {
         } catch (Exception e) {
           errorHandler.error("Error in Appender", e, ErrorCode.WRITE_FAILURE);
         } catch (Throwable e) {
-          System.err.println("Throwable in Appender: " + e.getMessage());
-          e.printStackTrace();
+          LogLog.error("Throwable in Appender: " + e.getMessage());
         }
+      }
+      if (producer != null) {
+        producer.close();
       }
     }
 
     // the internal state of our appender
     private AtomicBoolean shutdown = new AtomicBoolean(false);
-    private int batchNumber = 0;
     private int eventCount = 0;
     private final int[] eventArray;
     private final FlatBufferBuilder builder;
@@ -225,46 +259,54 @@ public class Log4jAppender extends AppenderSkeleton {
     private final String server;
     private final int batchSize;
     private final boolean collectLocation;
-    private final String brokerList;
-    private final int requiredAcks;
     private final int lingerMillis;
     private final String topic;
     private final ErrorHandler errorHandler;
     private final ArrayBlockingQueue<LoggingEvent> queue;
+    private final Properties config;
+    private Producer<Void, byte[]> producer;
   }
 
   public boolean requiresLayout() {
     return false;
   }
 
+  @SuppressWarnings("unused")
   public void setBrokerList(String value) {
-    this.brokerList = value;
+    config.put(BROKER_LIST_CONFIG, value);
   }
 
+  @SuppressWarnings("unused")
   public void setBatchSize(int value) {
     this.batchSize = value;
   }
 
+  @SuppressWarnings("unused")
   public void setCollectLocation(boolean value) {
     this.collectLocation = value;
   }
 
+  @SuppressWarnings("unused")
   public void setRequiredAcks(int value) {
-    this.requiredAcks = value;
+    config.put(REQUIRED_ACKS_CONFIG, Integer.toString(value));
   }
 
+  @SuppressWarnings("unused")
   public void setLingerMillis(int value) {
     this.lingerMillis = value;
   }
 
+  @SuppressWarnings("unused")
   public void setTopic(String value) {
     this.topic = value;
   }
 
+  @SuppressWarnings("unused")
   public void setServer(String value) {
     this.server = value;
   }
 
+  @SuppressWarnings("unused")
   public void setProject(String value) {
     this.project = value;
   }
@@ -298,18 +340,15 @@ public class Log4jAppender extends AppenderSkeleton {
   static final String hostName;
   static final String ipAddress;
   static {
-    System.out.println("Doing OOM static initialization");
     pid = getPid();
     InetAddress addr = null;
     try {
       addr = InetAddress.getLocalHost();
     } catch (UnknownHostException err) {
-      System.err.println("Can't get localhost information - " +
-          err.getMessage());
-      err.printStackTrace();
+      LogLog.error("Can't get localhost information", err);
     }
-    ipAddress = addr == null ? "unknown" : addr.getHostAddress();
-    hostName = addr == null ? "unknown" : addr.getHostName();
+    ipAddress = addr == null ? "?" : addr.getHostAddress();
+    hostName = addr == null ? "?" : addr.getHostName();
   }
 
   // the queue and thread that handles sending to Kafka
@@ -319,11 +358,15 @@ public class Log4jAppender extends AppenderSkeleton {
 
   // set via configuration
   private String topic;
-  private String brokerList;
+  private final Properties config = new Properties();
+  {
+    config.put(REQUIRED_ACKS_CONFIG, "1");
+    config.put(PRODUCER_TYPE_CONFIG, "async");
+  }
+
   private int batchSize = 1024;
-  private int requiredAcks = 1;
-  private int lingerMillis = 1024;
+  private int lingerMillis = 1000;
   private String server = "client";
-  private String project = "unspecified";
+  private String project = "?";
   private boolean collectLocation = false;
 }

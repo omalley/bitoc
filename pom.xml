@@ -2,10 +2,10 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.hortonworks</groupId>
-  <artifactId>binlog</artifactId>
+  <artifactId>ktoolog</artifactId>
   <packaging>jar</packaging>
   <version>1.0</version>
-  <name>binary logging</name>
+  <name>kafka to orc logging</name>
   <url>http://maven.apache.org</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -16,11 +16,11 @@
       <artifactId>log4j</artifactId>
       <version>1.2.17</version>
     </dependency>
-      <dependency>
-          <groupId>org.apache.kafka</groupId>
-          <artifactId>kafka_2.10</artifactId>
-          <version>0.8.1.1</version>
-      </dependency>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka_2.10</artifactId>
+      <version>0.8.1.1</version>
+    </dependency>
   </dependencies>
   <build>
     <plugins>
@@ -29,7 +29,7 @@
 	<configuration>
 	  <archive>
             <manifest>
-              <mainClass>com.hortonworks.binlog.EventPrinter</mainClass>
+              <mainClass>com.hortonworks.ktoolog.EventPrinter</mainClass>
             </manifest>
 	  </archive>
 	  <descriptorRefs>

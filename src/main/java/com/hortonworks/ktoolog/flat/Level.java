@@ -1,6 +1,6 @@
 // automatically generated, do not modify
 
-package com.hortonworks.binlog.flat;
+package com.hortonworks.ktoolog.flat;
 
 public final class Level {
   private Level() { }

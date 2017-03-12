@@ -1,10 +1,10 @@
 // automatically generated, do not modify
 
-package com.hortonworks.binlog.flat;
+package com.hortonworks.ktoolog.flat;
 
 import java.nio.*;
 import java.lang.*;
-import java.util.*;
+
 import com.google.flatbuffers.*;
 
 @SuppressWarnings("unused")
@@ -19,16 +19,15 @@ public final class Location extends Table {
   public ByteBuffer fileNameAsByteBuffer() { return __vector_as_bytebuffer(6, 1); }
   public String methodName() { int o = __offset(8); return o != 0 ? __string(o + bb_pos) : null; }
   public ByteBuffer methodNameAsByteBuffer() { return __vector_as_bytebuffer(8, 1); }
-  public String line() { int o = __offset(10); return o != 0 ? __string(o + bb_pos) : null; }
-  public ByteBuffer lineAsByteBuffer() { return __vector_as_bytebuffer(10, 1); }
+  public int line() { int o = __offset(10); return o != 0 ? bb.getInt(o + bb_pos) : 0; }
 
   public static int createLocation(FlatBufferBuilder builder,
       int classNameOffset,
       int fileNameOffset,
       int methodNameOffset,
-      int lineOffset) {
+      int line) {
     builder.startObject(4);
-    Location.addLine(builder, lineOffset);
+    Location.addLine(builder, line);
     Location.addMethodName(builder, methodNameOffset);
     Location.addFileName(builder, fileNameOffset);
     Location.addClassName(builder, classNameOffset);
@@ -39,7 +38,7 @@ public final class Location extends Table {
   public static void addClassName(FlatBufferBuilder builder, int classNameOffset) { builder.addOffset(0, classNameOffset, 0); }
   public static void addFileName(FlatBufferBuilder builder, int fileNameOffset) { builder.addOffset(1, fileNameOffset, 0); }
   public static void addMethodName(FlatBufferBuilder builder, int methodNameOffset) { builder.addOffset(2, methodNameOffset, 0); }
-  public static void addLine(FlatBufferBuilder builder, int lineOffset) { builder.addOffset(3, lineOffset, 0); }
+  public static void addLine(FlatBufferBuilder builder, int line) { builder.addInt(3, line, 0); }
   public static int endLocation(FlatBufferBuilder builder) {
     int o = builder.endObject();
     return o;
