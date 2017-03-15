@@ -14,20 +14,31 @@ public final class ExceptionInfo extends Table {
   public void __init(int _i, ByteBuffer _bb) { bb_pos = _i; bb = _bb; }
   public ExceptionInfo __assign(int _i, ByteBuffer _bb) { __init(_i, _bb); return this; }
 
-  public String text(int j) { int o = __offset(4); return o != 0 ? __string(__vector(o) + j * 4) : null; }
-  public int textLength() { int o = __offset(4); return o != 0 ? __vector_len(o) : 0; }
+  public String message() { int o = __offset(4); return o != 0 ? __string(o + bb_pos) : null; }
+  public ByteBuffer messageAsByteBuffer() { return __vector_as_bytebuffer(4, 1); }
+  public Location location(int j) { return location(new Location(), j); }
+  public Location location(Location obj, int j) { int o = __offset(6); return o != 0 ? obj.__assign(__indirect(__vector(o) + j * 4), bb) : null; }
+  public int locationLength() { int o = __offset(6); return o != 0 ? __vector_len(o) : 0; }
+  public ExceptionInfo cause() { return cause(new ExceptionInfo()); }
+  public ExceptionInfo cause(ExceptionInfo obj) { int o = __offset(8); return o != 0 ? obj.__assign(__indirect(o + bb_pos), bb) : null; }
 
   public static int createExceptionInfo(FlatBufferBuilder builder,
-      int textOffset) {
-    builder.startObject(1);
-    ExceptionInfo.addText(builder, textOffset);
+      int messageOffset,
+      int locationOffset,
+      int causeOffset) {
+    builder.startObject(3);
+    ExceptionInfo.addCause(builder, causeOffset);
+    ExceptionInfo.addLocation(builder, locationOffset);
+    ExceptionInfo.addMessage(builder, messageOffset);
     return ExceptionInfo.endExceptionInfo(builder);
   }
 
-  public static void startExceptionInfo(FlatBufferBuilder builder) { builder.startObject(1); }
-  public static void addText(FlatBufferBuilder builder, int textOffset) { builder.addOffset(0, textOffset, 0); }
-  public static int createTextVector(FlatBufferBuilder builder, int[] data) { builder.startVector(4, data.length, 4); for (int i = data.length - 1; i >= 0; i--) builder.addOffset(data[i]); return builder.endVector(); }
-  public static void startTextVector(FlatBufferBuilder builder, int numElems) { builder.startVector(4, numElems, 4); }
+  public static void startExceptionInfo(FlatBufferBuilder builder) { builder.startObject(3); }
+  public static void addMessage(FlatBufferBuilder builder, int messageOffset) { builder.addOffset(0, messageOffset, 0); }
+  public static void addLocation(FlatBufferBuilder builder, int locationOffset) { builder.addOffset(1, locationOffset, 0); }
+  public static int createLocationVector(FlatBufferBuilder builder, int[] data) { builder.startVector(4, data.length, 4); for (int i = data.length - 1; i >= 0; i--) builder.addOffset(data[i]); return builder.endVector(); }
+  public static void startLocationVector(FlatBufferBuilder builder, int numElems) { builder.startVector(4, numElems, 4); }
+  public static void addCause(FlatBufferBuilder builder, int causeOffset) { builder.addOffset(2, causeOffset, 0); }
   public static int endExceptionInfo(FlatBufferBuilder builder) {
     int o = builder.endObject();
     return o;

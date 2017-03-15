@@ -20,14 +20,16 @@ public final class Event extends Table {
   public boolean mutateLevel(byte level) { int o = __offset(6); if (o != 0) { bb.put(o + bb_pos, level); return true; } else { return false; } }
   public String message() { int o = __offset(8); return o != 0 ? __string(o + bb_pos) : null; }
   public ByteBuffer messageAsByteBuffer() { return __vector_as_bytebuffer(8, 1); }
-  public ExceptionInfo throwable() { return throwable(new ExceptionInfo()); }
-  public ExceptionInfo throwable(ExceptionInfo obj) { int o = __offset(10); return o != 0 ? obj.__assign(__indirect(o + bb_pos), bb) : null; }
+  public ExceptionInfo throwable(int j) { return throwable(new ExceptionInfo(), j); }
+  public ExceptionInfo throwable(ExceptionInfo obj, int j) { int o = __offset(10); return o != 0 ? obj.__assign(__indirect(__vector(o) + j * 4), bb) : null; }
+  public int throwableLength() { int o = __offset(10); return o != 0 ? __vector_len(o) : 0; }
   public String thread() { int o = __offset(12); return o != 0 ? __string(o + bb_pos) : null; }
   public ByteBuffer threadAsByteBuffer() { return __vector_as_bytebuffer(12, 1); }
   public String logger() { int o = __offset(14); return o != 0 ? __string(o + bb_pos) : null; }
   public ByteBuffer loggerAsByteBuffer() { return __vector_as_bytebuffer(14, 1); }
-  public Location location() { return location(new Location()); }
-  public Location location(Location obj) { int o = __offset(16); return o != 0 ? obj.__assign(__indirect(o + bb_pos), bb) : null; }
+  public Location location(int j) { return location(new Location(), j); }
+  public Location location(Location obj, int j) { int o = __offset(16); return o != 0 ? obj.__assign(__indirect(__vector(o) + j * 4), bb) : null; }
+  public int locationLength() { int o = __offset(16); return o != 0 ? __vector_len(o) : 0; }
   public String project() { int o = __offset(18); return o != 0 ? __string(o + bb_pos) : null; }
   public ByteBuffer projectAsByteBuffer() { return __vector_as_bytebuffer(18, 1); }
   public String server() { int o = __offset(20); return o != 0 ? __string(o + bb_pos) : null; }
@@ -38,6 +40,9 @@ public final class Event extends Table {
   public ByteBuffer ipAddressAsByteBuffer() { return __vector_as_bytebuffer(24, 1); }
   public int pid() { int o = __offset(26); return o != 0 ? bb.getInt(o + bb_pos) : 0; }
   public boolean mutatePid(int pid) { int o = __offset(26); if (o != 0) { bb.putInt(o + bb_pos, pid); return true; } else { return false; } }
+  public StringPair mdc(int j) { return mdc(new StringPair(), j); }
+  public StringPair mdc(StringPair obj, int j) { int o = __offset(28); return o != 0 ? obj.__assign(__indirect(__vector(o) + j * 4), bb) : null; }
+  public int mdcLength() { int o = __offset(28); return o != 0 ? __vector_len(o) : 0; }
 
   public static int createEvent(FlatBufferBuilder builder,
       long time,
@@ -51,9 +56,11 @@ public final class Event extends Table {
       int serverOffset,
       int hostNameOffset,
       int ipAddressOffset,
-      int pid) {
-    builder.startObject(12);
+      int pid,
+      int mdcOffset) {
+    builder.startObject(13);
     Event.addTime(builder, time);
+    Event.addMdc(builder, mdcOffset);
     Event.addPid(builder, pid);
     Event.addIpAddress(builder, ipAddressOffset);
     Event.addHostName(builder, hostNameOffset);
@@ -68,19 +75,26 @@ public final class Event extends Table {
     return Event.endEvent(builder);
   }
 
-  public static void startEvent(FlatBufferBuilder builder) { builder.startObject(12); }
+  public static void startEvent(FlatBufferBuilder builder) { builder.startObject(13); }
   public static void addTime(FlatBufferBuilder builder, long time) { builder.addLong(0, time, 0L); }
   public static void addLevel(FlatBufferBuilder builder, byte level) { builder.addByte(1, level, 3); }
   public static void addMessage(FlatBufferBuilder builder, int messageOffset) { builder.addOffset(2, messageOffset, 0); }
   public static void addThrowable(FlatBufferBuilder builder, int throwableOffset) { builder.addOffset(3, throwableOffset, 0); }
+  public static int createThrowableVector(FlatBufferBuilder builder, int[] data) { builder.startVector(4, data.length, 4); for (int i = data.length - 1; i >= 0; i--) builder.addOffset(data[i]); return builder.endVector(); }
+  public static void startThrowableVector(FlatBufferBuilder builder, int numElems) { builder.startVector(4, numElems, 4); }
   public static void addThread(FlatBufferBuilder builder, int threadOffset) { builder.addOffset(4, threadOffset, 0); }
   public static void addLogger(FlatBufferBuilder builder, int loggerOffset) { builder.addOffset(5, loggerOffset, 0); }
   public static void addLocation(FlatBufferBuilder builder, int locationOffset) { builder.addOffset(6, locationOffset, 0); }
+  public static int createLocationVector(FlatBufferBuilder builder, int[] data) { builder.startVector(4, data.length, 4); for (int i = data.length - 1; i >= 0; i--) builder.addOffset(data[i]); return builder.endVector(); }
+  public static void startLocationVector(FlatBufferBuilder builder, int numElems) { builder.startVector(4, numElems, 4); }
   public static void addProject(FlatBufferBuilder builder, int projectOffset) { builder.addOffset(7, projectOffset, 0); }
   public static void addServer(FlatBufferBuilder builder, int serverOffset) { builder.addOffset(8, serverOffset, 0); }
   public static void addHostName(FlatBufferBuilder builder, int hostNameOffset) { builder.addOffset(9, hostNameOffset, 0); }
   public static void addIpAddress(FlatBufferBuilder builder, int ipAddressOffset) { builder.addOffset(10, ipAddressOffset, 0); }
   public static void addPid(FlatBufferBuilder builder, int pid) { builder.addInt(11, pid, 0); }
+  public static void addMdc(FlatBufferBuilder builder, int mdcOffset) { builder.addOffset(12, mdcOffset, 0); }
+  public static int createMdcVector(FlatBufferBuilder builder, int[] data) { builder.startVector(4, data.length, 4); for (int i = data.length - 1; i >= 0; i--) builder.addOffset(data[i]); return builder.endVector(); }
+  public static void startMdcVector(FlatBufferBuilder builder, int numElems) { builder.startVector(4, numElems, 4); }
   public static int endEvent(FlatBufferBuilder builder) {
     int o = builder.endObject();
     return o;

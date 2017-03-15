@@ -1,3 +1,21 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.bitoc;
 
 import com.google.flatbuffers.FlatBufferBuilder;
@@ -15,6 +33,7 @@ import org.apache.log4j.spi.ErrorCode;
 import org.apache.log4j.spi.ErrorHandler;
 import org.apache.log4j.spi.LocationInfo;
 import org.apache.log4j.spi.LoggingEvent;
+import org.apache.log4j.spi.ThrowableInformation;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -71,7 +90,8 @@ public class Log4jAppender extends AppenderSkeleton {
   protected void append(LoggingEvent loggingEvent) {
     // fetch some of the properties, so they aren't lost
     loggingEvent.getThreadName();
-    if (collectLocation) {
+    loggingEvent.getMDCCopy();
+    if (collectLocation && loggingEvent.getThrowableInformation() == null) {
       loggingEvent.getLocationInformation();
     }
     // queue up the logging event
@@ -159,25 +179,43 @@ public class Log4jAppender extends AppenderSkeleton {
       startNewBlock();
     }
 
+    int serializeLocation(StackTraceElement[] locations) {
+      int[] offsets = new int[locations.length];
+      for(int i=0; i < locations.length; ++i) {
+        offsets[i] = Location.createLocation(builder,
+            builder.createString(locations[i].getClassName()),
+            builder.createString(locations[i].getFileName()),
+            builder.createString(locations[i].getMethodName()),
+            locations[i].getLineNumber());
+      }
+      return Event.createLocationVector(builder, offsets);
+    }
+
+    int serializeException(Throwable throwable) throws IOException {
+      Throwable cause = throwable.getCause();
+      int causeOffset = 0;
+      if (cause != null) {
+        causeOffset = serializeException(cause);
+      }
+      int locationOffset = serializeLocation(throwable.getStackTrace());
+      return ExceptionInfo.createExceptionInfo(builder,
+          builder.createString(throwable.getMessage()),
+          locationOffset, causeOffset);
+    }
+
     private void serializeEvent(LoggingEvent event) throws IOException {
       // if there is a throwable, serialize it
-      String[] throwable = event.getThrowableStrRep();
+      ThrowableInformation throwable = event.getThrowableInformation();
       int throwableOffset = 0;
       if (throwable != null) {
-        int[] strs = new int[throwable.length];
-        for(int i=0; i < throwable.length; ++i) {
-          strs[i] = builder.createString(throwable[i]);
-        }
-        int vector = ExceptionInfo.createTextVector(builder, strs);
-        ExceptionInfo.startExceptionInfo(builder);
-        ExceptionInfo.addText(builder, vector);
-        throwableOffset = ExceptionInfo.endExceptionInfo(builder);
+        throwableOffset = serializeException(throwable.getThrowable());
       }
 
-      // if the user wants locations, serialize it
+      // if the user wants locations, serialize it unless there is already a
+      // throwable, which has its own stack.
       int locationOffset = 0;
-      if (collectLocation) {
-        LocationInfo info = event.getLocationInformation();
+      if (collectLocation && throwable == null) {
+        LocationInfo info = event.getLocationInformation().;
         String lineStr = info.getLineNumber();
         int line = (lineStr == null || lineStr.equals("?"))
             ? -1 : Integer.parseInt(lineStr);

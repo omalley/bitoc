@@ -2,10 +2,6 @@ namespace org.apache.bitoc.flat;
 
 enum Level:byte {FATAL, ERROR, WARN, INFO, DEBUG, TRACE}
 
-table ExceptionInfo {
-  text: [string];
-}
-
 table Location {
   className: string;
   fileName: string;
@@ -13,28 +9,42 @@ table Location {
   line: int;
 }
 
+table ExceptionInfo {
+  message: string;
+  location: [Location];
+  cause: ExceptionInfo;
+}
+
+table StringPair {
+  key: string (required);
+  value: string (required);
+}
+
 table Event {
   time: long;
   level: Level = INFO;
   message: string;
-  // the throwable 
-  throwable: ExceptionInfo;
+  // the throwables with the first being the final exception
+  throwable: [ExceptionInfo];
   // the thread name
   thread: string;
   // the logger name
   logger: string;
   // the code location
-  location: Location;
+  location: [Location];
 
   // the project {hdfs, yarn, hive, ...}
   project: string;
   // the kind of server {namenode, datanode, resourcemanager, ...}
   server: string;
-  // the host ip addresses
+  // the host name
   hostName: string;
+  // the host ip address
   ipAddress: string;
   // the process pid
   pid: int;
+  // Mapped Diagnostic Context
+  mdc: [StringPair];
 }
 
 table Block {
